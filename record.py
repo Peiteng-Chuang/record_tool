@@ -1,15 +1,14 @@
+import os
 import sys
 import cv2
-import numpy as np
-import time
-from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QFileDialog, QComboBox
-from PySide6.QtCore import Qt, QRect, QThread, Signal, QPoint
-from PySide6.QtGui import QPainter, QColor, QPen, QIcon
-import ctypes
-import os
 import mss
-
+import time
+import ctypes
 import win32api
+import numpy as np
+from PySide6.QtGui import QPainter, QColor, QPen, QIcon
+from PySide6.QtCore import Qt, QRect, QThread, Signal
+from PySide6.QtWidgets import QApplication, QWidget, QPushButton, QVBoxLayout, QLabel, QFileDialog, QComboBox
 
 os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 os.environ["QT_SCALE_FACTOR"] = "1"
@@ -18,6 +17,17 @@ try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
 except Exception as e:
     print(f"DPI Awareness 設置失敗: {e}")
+
+import sys
+import os
+from PySide6.QtGui import QIcon
+
+def resource_path(relative_path):
+    """ 取得正確的資源路徑 (打包後適用) """
+    if hasattr(sys, '_MEIPASS'):
+        return os.path.join(sys._MEIPASS, relative_path)
+    return relative_path
+
 
 class CaptureThread(QThread):
     """專門用來擷取畫面的線程"""
@@ -68,6 +78,10 @@ class ScreenRecorder(QWidget):
         self.setWindowTitle("螢幕錄影工具")
         self.setGeometry(100, 100, 300, 250)
         self.setWindowFlags(Qt.Window)
+
+        #外接資源路徑
+        icon_path = resource_path("pooh.png")
+        self.setWindowIcon(QIcon(icon_path))
 
         # 取得所有螢幕資訊
         self.screens = QApplication.screens()
@@ -169,7 +183,7 @@ class ScreenRecorder(QWidget):
 
             if self.overlay:
                 self.overlay.close()
-            self.overlay = RecordingOverlay(self.recording_area, self.dpi_scaling[self.selected_screen_name])
+            self.overlay = RecordingOverlay(self.recording_area, self.dpi_scaling[self.selected_screen_name],self.selected_screen_geometry)
             self.overlay.show()
 
     def start_recording(self):
@@ -189,7 +203,7 @@ class ScreenRecorder(QWidget):
 
         x, y, w, h = self.recording_area
 
-        fps = 20.0
+        fps = 24.0
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         self.video_writer = cv2.VideoWriter(file_path, fourcc, fps, (w, h))
 
@@ -269,7 +283,14 @@ class ScreenSelection(QWidget):
         scaling = self.dpi_scaling  # 根據選擇的螢幕 DPI 縮放
         print(f"mouseReleaseEvent scaling={scaling}")
         
-        x, y, w, h = x, y, int(w * scaling), int(h * scaling)
+        top_left = self.screen_geometry.topLeft()
+        print(f"top_left.x()={top_left.x()}, top_left.y()={top_left.y()}")
+        
+        x = top_left.x()+int((x - top_left.x()) * scaling)
+        y = top_left.y()+int((y - top_left.y()) * scaling)
+
+        w = int(w * scaling)
+        h = int(h * scaling)
         
 
         if w > 10 and h > 10:
@@ -300,19 +321,24 @@ class ScreenSelection(QWidget):
 
 class RecordingOverlay(QWidget):
     """顯示錄影範圍的透明標記框"""
-    def __init__(self, area, dpi_scaling):
+    def __init__(self, area, dpi_scaling, screen_geometry):
         super().__init__()
         self.dpi_scaling=dpi_scaling
+        self.screen_geometry=screen_geometry
         self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
         # 擴大邊框範圍，避免框線被錄進去
-        padding = 3  # 增加 3 像素的邊界
         x, y, w, h = area
+        top_left = self.screen_geometry.topLeft()
 
+        x=top_left.x()+int((x-top_left.x())/dpi_scaling)
+        y=top_left.y()+int((y-top_left.y())/dpi_scaling)
         w=int(w/dpi_scaling)
         h=int(h/dpi_scaling)
+        print(f"drawing ({x}, {y}, {w}, {h})")
 
+        padding = 2  # 增加 3 像素的邊界
         self.setGeometry(x - padding, y - padding, w + 2 * padding, h + 2 * padding)
         
         self.is_recording = False  # 控制框線顏色
